@@ -1,0 +1,14 @@
+build/
+.cache/
+*.o
+*.a
+*.so
+bloomberg-terminal
+portfolio.csv
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+install_manifest.txt
+.DS_Store
+*.swp
+*~
