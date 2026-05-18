@@ -7,7 +7,7 @@
 
 set -euo pipefail
 
-REPO="Sqwerzyyy/bloomberg-terminal"
+REPO="YOUR_USERNAME/bloomberg-terminal"
 INSTALL_DIR="$HOME/.local/bin"
 BUILD_DIR=$(mktemp -d)
 
