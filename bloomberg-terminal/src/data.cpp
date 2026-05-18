@@ -518,3 +518,126 @@ void MacroDashboard::refresh_live() {
         fetching_ = false;
     }).detach();
 }
+
+// ═══════════════════════════════════════════════════════════════════
+//  Analytics Engine
+// ═══════════════════════════════════════════════════════════════════
+
+CorrelationMatrix compute_correlation(
+    const std::vector<std::string>& symbols,
+    const std::function<const std::deque<Candle>*(const std::string&)>& get_hist,
+    int periods)
+{
+    CorrelationMatrix cm;
+    cm.symbols = symbols;
+    int N = (int)symbols.size();
+    cm.matrix.assign(N, std::vector<double>(N, 0.0));
+
+    // Build returns matrix
+    std::vector<std::vector<double>> returns(N);
+    for (int i = 0; i < N; ++i) {
+        const auto* h = get_hist(symbols[i]);
+        if (!h || h->size() < 2) continue;
+        int n = std::min(periods + 1, (int)h->size());
+        int start = (int)h->size() - n;
+        for (int j = start + 1; j < (int)h->size(); ++j) {
+            double prev = (*h)[j-1].close;
+            double cur  = (*h)[j].close;
+            if (prev > 0) returns[i].push_back((cur - prev) / prev);
+        }
+    }
+
+    // Pearson correlation
+    for (int i = 0; i < N; ++i) {
+        for (int j = 0; j < N; ++j) {
+            if (i == j) { cm.matrix[i][j] = 1.0; continue; }
+            const auto& a = returns[i];
+            const auto& b = returns[j];
+            int n = (int)std::min(a.size(), b.size());
+            if (n < 3) { cm.matrix[i][j] = 0.0; continue; }
+
+            double sum_a=0, sum_b=0, sum_ab=0, sum_a2=0, sum_b2=0;
+            for (int k = 0; k < n; ++k) {
+                sum_a  += a[k]; sum_b  += b[k];
+                sum_ab += a[k]*b[k];
+                sum_a2 += a[k]*a[k]; sum_b2 += b[k]*b[k];
+            }
+            double mean_a = sum_a/n, mean_b = sum_b/n;
+            double cov=0, var_a=0, var_b=0;
+            for (int k = 0; k < n; ++k) {
+                cov   += (a[k]-mean_a)*(b[k]-mean_b);
+                var_a += (a[k]-mean_a)*(a[k]-mean_a);
+                var_b += (b[k]-mean_b)*(b[k]-mean_b);
+            }
+            double denom = std::sqrt(var_a * var_b);
+            cm.matrix[i][j] = denom > 1e-10 ? cov / denom : 0.0;
+        }
+    }
+    return cm;
+}
+
+MarketSummary compute_market_summary(const std::vector<Quote>& quotes) {
+    MarketSummary ms;
+    if (quotes.empty()) return ms;
+
+    std::vector<GainerLoser> all;
+    double sum_chg = 0;
+    int adv=0, dec=0, unch=0;
+
+    for (const auto& q : quotes) {
+        GainerLoser g{q.symbol, q.name, q.price, q.change, q.change_pct, (double)q.volume};
+        all.push_back(g);
+        sum_chg += q.change_pct;
+        if (q.change_pct >  0.05) ++adv;
+        else if (q.change_pct < -0.05) ++dec;
+        else ++unch;
+    }
+    ms.avg_change_pct = sum_chg / quotes.size();
+    ms.advances  = (double)adv  / quotes.size() * 100.0;
+    ms.declines  = (double)dec  / quotes.size() * 100.0;
+    ms.unchanged = (double)unch / quotes.size() * 100.0;
+
+    // Gainers
+    auto sorted = all;
+    std::sort(sorted.begin(), sorted.end(),
+        [](const GainerLoser& a, const GainerLoser& b){ return a.change_pct > b.change_pct; });
+    for (int i = 0; i < std::min(5,(int)sorted.size()); ++i)
+        ms.top_gainers.push_back(sorted[i]);
+
+    // Losers
+    std::sort(sorted.begin(), sorted.end(),
+        [](const GainerLoser& a, const GainerLoser& b){ return a.change_pct < b.change_pct; });
+    for (int i = 0; i < std::min(5,(int)sorted.size()); ++i)
+        ms.top_losers.push_back(sorted[i]);
+
+    // Volume
+    std::sort(sorted.begin(), sorted.end(),
+        [](const GainerLoser& a, const GainerLoser& b){ return a.volume > b.volume; });
+    for (int i = 0; i < std::min(5,(int)sorted.size()); ++i)
+        ms.top_volume.push_back(sorted[i]);
+
+    return ms;
+}
+
+std::vector<SectorPerf> compute_sector_perf(const std::vector<Quote>& quotes) {
+    std::map<std::string, std::vector<double>> by_sector;
+    for (const auto& q : quotes) {
+        std::string s = q.sector.empty() ? "Other" : q.sector;
+        by_sector[s].push_back(q.change_pct);
+    }
+    std::vector<SectorPerf> out;
+    for (auto& [sector, vals] : by_sector) {
+        SectorPerf sp;
+        sp.sector = sector;
+        sp.count  = (int)vals.size();
+        sp.advances = 0;
+        double sum = 0;
+        for (double v : vals) { sum += v; if (v > 0) ++sp.advances; }
+        sp.avg_change_pct = sum / vals.size();
+        out.push_back(sp);
+    }
+    std::sort(out.begin(), out.end(),
+        [](const SectorPerf& a, const SectorPerf& b){
+            return a.avg_change_pct > b.avg_change_pct; });
+    return out;
+}

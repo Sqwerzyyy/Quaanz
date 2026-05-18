@@ -717,7 +717,8 @@ static void draw_header(WINDOW* w, int panel, bool fetching,
 
     struct Tab { int id; const char* label; };
     Tab tabs[]={{1,"MARKET"},{2,"PORTFOLIO"},{3,"CHART"},
-                {4,"OPTIONS"},{5,"NEWS"},{6,"HEATMAP"},{7,"SCREENER"},{8,"MACRO"}};
+                {4,"OPTIONS"},{5,"NEWS"},{6,"HEATMAP"},{7,"SCREENER"},{8,"MACRO"},
+                {9,"MOVERS"},{10,"CORREL"},{11,"SECTORS"}};
     int x=23;
     for (auto& t : tabs) {
         if (t.id==panel) {
@@ -776,6 +777,12 @@ static std::string prompt(WINDOW* sw, const std::string& msg) {
 //  Main
 // ═══════════════════════════════════════════════════════════════════
 
+// Forward declarations for panels defined after main
+static void draw_gainers(WINDOW* w, const MarketSummary& ms);
+static void draw_correlation(WINDOW* w, const CorrelationMatrix& cm);
+static void draw_sector(WINDOW* w, const std::vector<SectorPerf>& sectors,
+                        const std::vector<Quote>& quotes);
+
 int main() {
     initscr(); cbreak(); noecho();
     keypad(stdscr,TRUE); curs_set(0);
@@ -813,6 +820,12 @@ int main() {
 
     ScreenerFilter sf;
 
+    // Analytics cache (recompute every N ticks)
+    MarketSummary    mkt_summary;
+    CorrelationMatrix corr_matrix;
+    std::vector<SectorPerf> sector_perf;
+    int analytics_tick = 0;
+
     while (true) {
         if (++tick%5==0) {
             md.tick(); news.tick(); macro.tick();
@@ -823,6 +836,21 @@ int main() {
                     +(fired[0]->above?" ≥ ":" ≤ ")
                     +std::to_string(fired[0]->target_price);
                 status_ok=false;
+            }
+            // Recompute analytics every 20 ticks
+            if (++analytics_tick % 20 == 0 || analytics_tick == 1) {
+                auto all_q = md.all();
+                mkt_summary = compute_market_summary(all_q);
+                sector_perf = compute_sector_perf(all_q);
+                // Correlation: use core symbols
+                std::vector<std::string> cor_syms = {
+                    "AAPL","MSFT","GOOGL","NVDA","TSLA",
+                    "JPM","GS","SPY","BTC","ETH","GLD"
+                };
+                corr_matrix = compute_correlation(cor_syms,
+                    [&](const std::string& s) -> const std::deque<Candle>* {
+                        return &md.history(s);
+                    });
             }
         }
 
@@ -853,6 +881,9 @@ int main() {
             case 6: draw_heatmap(wMain,quotes);                          break;
             case 7: draw_screener(wMain,quotes,sf,scr_sel,scr_scroll);   break;
             case 8: draw_macro(wMain,macro);                             break;
+            case 9: draw_gainers(wMain,mkt_summary);                     break;
+            case 10: draw_correlation(wMain,corr_matrix);                break;
+            case 11: draw_sector(wMain,sector_perf,quotes);              break;
         }
         wrefresh(wMain);
         draw_status(wStatus,status_msg,status_ok);
@@ -863,6 +894,9 @@ int main() {
 
         // Panel switch
         if (ch>='1'&&ch<='8') { panel=ch-'0'; continue; }
+        if (ch=='9') { panel=9;  continue; }
+        if (ch=='0') { panel=10; continue; }
+        if (ch=='=') { panel=11; continue; }
 
         // Navigation
         auto nav=[&](int& s, int& sc, int total, int vis){
@@ -905,7 +939,7 @@ int main() {
             case 't': sf.sector="Technology"; break;
             case 'n': sf.sector="Finance";    break;
             case 'c': sf.sector="Crypto";     break;
-            case '0': sf.sector="";           break;
+            case '`': sf.sector="";           break;  // backtick = all sectors
 
             // Fetch live
             case 'f': case 'F':
@@ -977,4 +1011,297 @@ int main() {
     endwin();
     puts("Bloomberg Terminal closed. Portfolio saved to portfolio.csv");
     return 0;
+}
+
+// ═══════════════════════════════════════════════════════════════════
+//  Panel 9 — Gainers / Losers / Volume
+// ═══════════════════════════════════════════════════════════════════
+
+static void draw_gainers(WINDOW* w, const MarketSummary& ms) {
+    int rows, cols; getmaxyx(w, rows, cols);
+    werase(w); titled_box(w, "MARKET MOVERS");
+
+    // Breadth bar
+    int bw = cols - 4;
+    int adv_w = (int)(ms.advances  / 100.0 * bw);
+    int dec_w = (int)(ms.declines  / 100.0 * bw);
+    int unc_w = std::max(0, bw - adv_w - dec_w);
+
+    wattron(w, COLOR_PAIR(CP_DIM));
+    mvwprintw(w, 1, 2, "MARKET BREADTH  ADV %.0f%%  UNCH %.0f%%  DEC %.0f%%  |  Avg: %+.2f%%",
+              ms.advances, ms.unchanged, ms.declines, ms.avg_change_pct);
+    wattroff(w, COLOR_PAIR(CP_DIM));
+
+    mvwprintw(w, 2, 2, "");
+    wattron(w, COLOR_PAIR(CP_BG_GREEN));
+    for (int i = 0; i < adv_w; ++i) waddch(w, ' ');
+    wattroff(w, COLOR_PAIR(CP_BG_GREEN));
+    wattron(w, COLOR_PAIR(CP_DIM));
+    for (int i = 0; i < unc_w; ++i) waddch(w, ' ');
+    wattroff(w, COLOR_PAIR(CP_DIM));
+    wattron(w, COLOR_PAIR(CP_BG_RED));
+    for (int i = 0; i < dec_w; ++i) waddch(w, ' ');
+    wattroff(w, COLOR_PAIR(CP_BG_RED));
+
+    // Three columns
+    int cw = (cols - 4) / 3;
+    auto draw_col = [&](int x, const char* title,
+                         const std::vector<GainerLoser>& items,
+                         int cp_val, bool show_vol) {
+        wattron(w, COLOR_PAIR(CP_HEADER) | A_BOLD);
+        mvwhline(w, 4, x, ' ', cw);
+        mvwprintw(w, 4, x + 1, " %-6s %8s %8s", "SYM",
+                  show_vol ? "VOLUME" : "PRICE",
+                  show_vol ? "CHG%"   : "CHG%");
+        mvwprintw(w, 3, x + cw/2 - (int)strlen(title)/2, "%s", title);
+        wattroff(w, COLOR_PAIR(CP_HEADER) | A_BOLD);
+
+        for (int i = 0; i < (int)items.size() && i < 8; ++i) {
+            const auto& g = items[i];
+            int row = 5 + i * 2;
+            if (row >= rows - 2) break;
+
+            // Badge background
+            wattron(w, COLOR_PAIR(g.change_pct >= 0 ? CP_BG_GREEN : CP_BG_RED) | A_BOLD);
+            mvwprintw(w, row, x + 1, " %-6s ", g.symbol.c_str());
+            wattroff(w, COLOR_PAIR(g.change_pct >= 0 ? CP_BG_GREEN : CP_BG_RED) | A_BOLD);
+
+            wattron(w, A_BOLD);
+            if (show_vol)
+                wprintw(w, " %8s", fmtv((long long)g.volume).c_str());
+            else
+                wprintw(w, " %8.2f", g.price);
+            wattroff(w, A_BOLD);
+
+            wattron(w, COLOR_PAIR(cp_val) | A_BOLD);
+            wprintw(w, " %+7.2f%%", g.change_pct);
+            wattroff(w, COLOR_PAIR(cp_val) | A_BOLD);
+
+            // Name small
+            wattron(w, COLOR_PAIR(CP_DIM));
+            mvwprintw(w, row + 1, x + 2, "%-20s",
+                      g.name.substr(0, 20).c_str());
+            wattroff(w, COLOR_PAIR(CP_DIM));
+        }
+        // Column divider
+        wattron(w, COLOR_PAIR(CP_BORDER));
+        for (int r = 3; r < rows - 1; ++r) mvwaddch(w, r, x + cw - 1, ACS_VLINE);
+        wattroff(w, COLOR_PAIR(CP_BORDER));
+    };
+
+    draw_col(2,       "🟢  TOP GAINERS",  ms.top_gainers, CP_GREEN, false);
+    draw_col(2+cw,    "🔴  TOP LOSERS",   ms.top_losers,  CP_RED,   false);
+    draw_col(2+cw*2,  "📊  TOP VOLUME",   ms.top_volume,  CP_CYAN,  true);
+}
+
+// ═══════════════════════════════════════════════════════════════════
+//  Panel 10 — Correlation Matrix
+// ═══════════════════════════════════════════════════════════════════
+
+static void draw_correlation(WINDOW* w, const CorrelationMatrix& cm) {
+    int rows, cols; getmaxyx(w, rows, cols);
+    werase(w); titled_box(w, "CORRELATION MATRIX  —  30-day Pearson");
+
+    wattron(w, COLOR_PAIR(CP_DIM));
+    mvwprintw(w, 1, 2,
+      "Color: ██ >+0.7 strong pos  ░░ ~0 neutral  ▓▓ <-0.7 strong neg");
+    wattroff(w, COLOR_PAIR(CP_DIM));
+
+    int N = (int)cm.symbols.size();
+    if (N == 0) return;
+
+    // Cell size
+    int cell = 5;
+    int label_w = 7;
+    int x0 = label_w + 2;
+    int y0 = 3;
+
+    // Column headers
+    wattron(w, COLOR_PAIR(CP_CYAN) | A_BOLD);
+    for (int j = 0; j < N; ++j) {
+        int x = x0 + j * cell;
+        if (x + cell >= cols) break;
+        std::string s = cm.symbols[j].substr(0, 4);
+        mvwprintw(w, y0, x, "%4s ", s.c_str());
+    }
+    wattroff(w, COLOR_PAIR(CP_CYAN) | A_BOLD);
+
+    for (int i = 0; i < N; ++i) {
+        int y = y0 + 1 + i;
+        if (y >= rows - 2) break;
+
+        // Row label
+        wattron(w, COLOR_PAIR(CP_CYAN) | A_BOLD);
+        mvwprintw(w, y, 2, "%-6s", cm.symbols[i].substr(0, 6).c_str());
+        wattroff(w, COLOR_PAIR(CP_CYAN) | A_BOLD);
+
+        for (int j = 0; j < N; ++j) {
+            int x = x0 + j * cell;
+            if (x + cell >= cols) break;
+
+            double r = cm.matrix[i][j];
+
+            // Color by correlation strength
+            int cp;
+            const char* block;
+            if (i == j) {
+                cp = CP_BG_CYAN; block = "SELF";
+            } else if (r >= 0.7) {
+                cp = CP_BG_GREEN; block = "████";
+            } else if (r >= 0.3) {
+                cp = CP_GREEN;    block = "▓▓▓▓";
+            } else if (r >= -0.3) {
+                cp = CP_DIM;      block = "░░░░";
+            } else if (r >= -0.7) {
+                cp = CP_RED;      block = "▒▒▒▒";
+            } else {
+                cp = CP_BG_RED;   block = "████";
+            }
+
+            wattron(w, COLOR_PAIR(cp) | (i==j ? A_BOLD : 0));
+            if (i == j) {
+                mvwprintw(w, y, x, "%-4s ", cm.symbols[i].substr(0,4).c_str());
+            } else {
+                mvwprintw(w, y, x, "%+.2f", r);
+            }
+            wattroff(w, COLOR_PAIR(cp) | A_BOLD);
+            (void)block;
+        }
+    }
+
+    // Legend
+    wattron(w, COLOR_PAIR(CP_DIM));
+    mvwprintw(w, rows-2, 2, "Correlation based on %d daily returns. ", 30);
+    wattroff(w, COLOR_PAIR(CP_DIM));
+    wattron(w, COLOR_PAIR(CP_BG_GREEN) | A_BOLD); wprintw(w, " ≥0.7 "); wattroff(w, COLOR_PAIR(CP_BG_GREEN)|A_BOLD);
+    wattron(w, COLOR_PAIR(CP_GREEN));              wprintw(w, " ≥0.3 "); wattroff(w, COLOR_PAIR(CP_GREEN));
+    wattron(w, COLOR_PAIR(CP_DIM));                wprintw(w, " ~0   "); wattroff(w, COLOR_PAIR(CP_DIM));
+    wattron(w, COLOR_PAIR(CP_RED));                wprintw(w, " ≤-0.3"); wattroff(w, COLOR_PAIR(CP_RED));
+    wattron(w, COLOR_PAIR(CP_BG_RED) | A_BOLD);    wprintw(w, " ≤-0.7"); wattroff(w, COLOR_PAIR(CP_BG_RED)|A_BOLD);
+}
+
+// ═══════════════════════════════════════════════════════════════════
+//  Panel 11 — Sector Pie Chart + Performance
+// ═══════════════════════════════════════════════════════════════════
+
+static void draw_sector(WINDOW* w, const std::vector<SectorPerf>& sectors,
+                         const std::vector<Quote>& quotes) {
+    int rows, cols; getmaxyx(w, rows, cols);
+    werase(w); titled_box(w, "SECTOR PERFORMANCE");
+
+    // Left: sector bar chart
+    int chart_w = cols / 2 - 4;
+    int bar_max  = chart_w - 20;
+
+    wattron(w, COLOR_PAIR(CP_HEADER) | A_BOLD);
+    mvwhline(w, 1, 1, ' ', cols / 2 - 2);
+    mvwprintw(w, 1, 2, "%-14s %6s %5s %s", "SECTOR", "AVG%", "ADV", "PERFORMANCE BAR");
+    wattroff(w, COLOR_PAIR(CP_HEADER) | A_BOLD);
+
+    // Find max abs for scaling
+    double max_abs = 0.01;
+    for (const auto& s : sectors)
+        max_abs = std::max(max_abs, std::abs(s.avg_change_pct));
+
+    static const int SECTOR_COLORS[] = {
+        CP_CYAN, CP_GREEN, CP_YELLOW, CP_MAGENTA, CP_RED, CP_BORDER, CP_DIM
+    };
+
+    for (int i = 0; i < (int)sectors.size() && i < rows - 5; ++i) {
+        const auto& s = sectors[i];
+        int row = 2 + i * 2;
+        if (row + 1 >= rows - 2) break;
+
+        bool pos = s.avg_change_pct >= 0;
+        int cp_bar = pos ? CP_GREEN : CP_RED;
+        int cp_sec = SECTOR_COLORS[i % 7];
+
+        wattron(w, COLOR_PAIR(cp_sec) | A_BOLD);
+        mvwprintw(w, row, 2, "%-14s", s.sector.substr(0, 14).c_str());
+        wattroff(w, COLOR_PAIR(cp_sec) | A_BOLD);
+
+        wattron(w, COLOR_PAIR(pos ? CP_GREEN : CP_RED) | A_BOLD);
+        wprintw(w, " %+6.2f%%", s.avg_change_pct);
+        wattroff(w, COLOR_PAIR(pos ? CP_GREEN : CP_RED) | A_BOLD);
+
+        wattron(w, COLOR_PAIR(CP_DIM));
+        wprintw(w, " %2d/%2d ", s.advances, s.count);
+        wattroff(w, COLOR_PAIR(CP_DIM));
+
+        // Bar
+        int barlen = (int)(std::abs(s.avg_change_pct) / max_abs * bar_max);
+        wattron(w, COLOR_PAIR(cp_bar) | A_BOLD);
+        for (int k = 0; k < barlen; ++k) waddstr(w, pos ? "█" : "▒");
+        wattroff(w, COLOR_PAIR(cp_bar) | A_BOLD);
+
+        // Sub-row: symbols in sector
+        wattron(w, COLOR_PAIR(CP_DIM));
+        mvwprintw(w, row + 1, 4, "");
+        for (const auto& q : quotes) {
+            if (q.sector == s.sector) {
+                wattron(w, COLOR_PAIR(q.change_pct >= 0 ? CP_GREEN : CP_RED));
+                wprintw(w, "%s(%+.1f%%) ", q.symbol.c_str(), q.change_pct);
+                wattroff(w, COLOR_PAIR(q.change_pct >= 0 ? CP_GREEN : CP_RED));
+            }
+        }
+        wattroff(w, COLOR_PAIR(CP_DIM));
+    }
+
+    // Right side: ASCII pie-like donut
+    int px = cols / 2 + 4, py = 2;
+    int pr = std::min((rows - 6) / 2, (cols / 2 - 8) / 4);
+    pr = std::max(3, std::min(pr, 8));
+
+    wattron(w, COLOR_PAIR(CP_CYAN) | A_BOLD);
+    mvwprintw(w, py - 1, px + pr * 2 - 6, "ALLOCATION");
+    wattroff(w, COLOR_PAIR(CP_CYAN) | A_BOLD);
+
+    // Draw ASCII donut
+    double total_count = 0;
+    for (const auto& s : sectors) total_count += s.count;
+
+    for (int dy = -pr; dy <= pr; ++dy) {
+        for (int dx = -pr * 2; dx <= pr * 2; ++dx) {
+            double fx = (double)dx / (pr * 2);
+            double fy = (double)dy / pr;
+            double dist = fx*fx + fy*fy;
+            if (dist > 1.0 || dist < 0.36) continue; // donut ring
+
+            double angle = std::atan2(fy, fx) + M_PI; // 0..2PI
+            double norm  = angle / (2.0 * M_PI);
+
+            // Find which sector this angle falls into
+            double cum = 0;
+            int sec_idx = 0;
+            for (int si = 0; si < (int)sectors.size(); ++si) {
+                cum += (double)sectors[si].count / total_count;
+                if (norm <= cum) { sec_idx = si; break; }
+            }
+
+            int cp_d = SECTOR_COLORS[sec_idx % 7];
+            bool pos = sectors[sec_idx].avg_change_pct >= 0;
+            wattron(w, COLOR_PAIR(pos ? cp_d : CP_RED) | A_BOLD);
+            mvwprintw(w, py + dy + pr, px + dx + pr*2, "█");
+            wattroff(w, COLOR_PAIR(pos ? cp_d : CP_RED) | A_BOLD);
+        }
+    }
+
+    // Legend next to donut
+    int lx = px + pr * 4 + 3;
+    int ly = py;
+    for (int i = 0; i < (int)sectors.size() && ly + i < rows - 2; ++i) {
+        const auto& s = sectors[i];
+        wattron(w, COLOR_PAIR(SECTOR_COLORS[i % 7]) | A_BOLD);
+        mvwprintw(w, ly + i, lx, "█ ");
+        wattroff(w, COLOR_PAIR(SECTOR_COLORS[i % 7]) | A_BOLD);
+        wattron(w, COLOR_PAIR(CP_DIM));
+        wprintw(w, "%-12s %.0f%%",
+                s.sector.substr(0, 12).c_str(),
+                (double)s.count / total_count * 100.0);
+        wattroff(w, COLOR_PAIR(CP_DIM));
+    }
+
+    wattron(w, COLOR_PAIR(CP_DIM));
+    mvwprintw(w, rows - 2, 2, "Performance based on today's simulated returns. [f/F] to load live data.");
+    wattroff(w, COLOR_PAIR(CP_DIM));
 }

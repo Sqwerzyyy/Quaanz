@@ -202,3 +202,46 @@ private:
     std::atomic<bool>           fetching_{false};
     std::mt19937                rng_;
 };
+
+// ─── Analytics Engine ────────────────────────────────────────────────────
+
+struct CorrelationMatrix {
+    std::vector<std::string>          symbols;
+    std::vector<std::vector<double>>  matrix;  // NxN, range [-1, 1]
+};
+
+// Compute Pearson correlation from price history
+CorrelationMatrix compute_correlation(
+    const std::vector<std::string>& symbols,
+    const std::function<const std::deque<Candle>*(const std::string&)>& get_hist,
+    int periods = 30);
+
+struct GainerLoser {
+    std::string symbol;
+    std::string name;
+    double      price;
+    double      change;
+    double      change_pct;
+    double      volume;
+};
+
+struct MarketSummary {
+    std::vector<GainerLoser> top_gainers;   // top 5
+    std::vector<GainerLoser> top_losers;    // top 5
+    std::vector<GainerLoser> top_volume;    // top 5 by volume
+    double advances  = 0;  // % of symbols up
+    double declines  = 0;
+    double unchanged = 0;
+    double avg_change_pct = 0;
+};
+
+MarketSummary compute_market_summary(const std::vector<Quote>& quotes);
+
+struct SectorPerf {
+    std::string sector;
+    double      avg_change_pct;
+    int         count;
+    int         advances;
+};
+
+std::vector<SectorPerf> compute_sector_perf(const std::vector<Quote>& quotes);
