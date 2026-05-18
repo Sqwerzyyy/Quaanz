@@ -33,7 +33,7 @@
 ## One-line Install (Linux / macOS / WSL)
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/YOUR_USERNAME/bloomberg-terminal/main/scripts/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/Sqwerzyyy/bloomberg-terminal/main/scripts/install.sh | bash
 ```
 
 Then run:
@@ -62,7 +62,7 @@ brew install cmake ncurses
 
 ```bash
 # Clone
-git clone https://github.com/YOUR_USERNAME/bloomberg-terminal.git
+git clone https://github.com/Sqwerzyyy/bloomberg-terminal.git
 cd bloomberg-terminal
 
 # Configure & build
