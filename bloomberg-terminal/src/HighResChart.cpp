@@ -79,7 +79,6 @@ ChartData build_chart_data(const std::string& sym,
     return cd;
 }
 
-// Used by render_braille_chart (kept for completeness)
 static void fill_canvas(const ChartData& data, BrailleCanvas& canvas,
                         int width, int height, double& mn_out, double& mx_out)
 {
@@ -164,7 +163,6 @@ public:
 
         int n = (int)data_.candles.size();
 
-        // One aggregated OHLC candle per visible column
         struct DisplayCandle {
             double open = 0, high = 0, low = 0, close = 0;
             bool valid = false;
@@ -172,7 +170,6 @@ public:
         std::vector<DisplayCandle> display(chart_w);
 
         if (n >= chart_w) {
-            // Downsample: merge groups into one column each
             for (int col = 0; col < chart_w; ++col) {
                 int i0 = (int)((long long)col       * n / chart_w);
                 int i1 = (int)((long long)(col + 1) * n / chart_w);
@@ -213,7 +210,6 @@ public:
             return std::clamp(row, 0, chart_h - 1);
         };
 
-        // Y-axis labels (same style as original ChartNode)
         for (int row = 0; row < chart_h; ++row) {
             int sy = by0 + row;
             if (sy > by1) break;
@@ -234,13 +230,12 @@ public:
                 int sepx = bx0 + label_w - 1;
                 if (sepx <= bx1) {
                     Pixel& p = screen.PixelAt(sepx, sy);
-                    p.character = "│";   // │
+                    p.character = "│";
                     p.foreground_color = Color::GrayDark;
                 }
             }
         }
 
-        // Draw candles
         for (int col = 0; col < chart_w; ++col) {
             const auto& dc = display[col];
             if (!dc.valid) continue;
@@ -261,22 +256,21 @@ public:
                 if (sy < by0 || sy > by1) continue;
                 Pixel& p = screen.PixelAt(sx, sy);
                 if (row >= body_top && row <= body_bot) {
-                    p.character = "█";   // █ full block = body
+                    p.character = "█";
                 } else {
-                    p.character = "│";   // │ thin line   = wick
+                    p.character = "│";
                 }
                 p.foreground_color = candle_col;
             }
         }
 
-        // X axis
         int axis_y = by0 + chart_h;
         if (axis_y <= by1) {
             if (label_w > 0) {
                 int corner = bx0 + label_w - 1;
                 if (corner <= bx1) {
                     Pixel& p = screen.PixelAt(corner, axis_y);
-                    p.character = "└";   // └
+                    p.character = "└";
                     p.foreground_color = Color::GrayDark;
                 }
             }
@@ -284,7 +278,7 @@ public:
                 int sx = bx0 + label_w + col;
                 if (sx > bx1) break;
                 Pixel& p = screen.PixelAt(sx, axis_y);
-                p.character = "─";       // ─
+                p.character = "─";
                 p.foreground_color = Color::GrayDark;
             }
         }

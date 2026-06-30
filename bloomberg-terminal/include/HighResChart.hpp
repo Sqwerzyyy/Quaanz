@@ -17,7 +17,7 @@ struct BrailleCanvas {
 };
 
 struct ChartData {
-    std::vector<double> prices;   // close prices — kept for render_braille_chart / sparkline
+    std::vector<double> prices;   // close prices for braille chart and sparkline
     std::vector<double> volumes;
     std::vector<Candle> candles;  // full OHLC for candlestick chart
     std::string symbol;

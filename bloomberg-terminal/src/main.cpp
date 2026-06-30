@@ -28,7 +28,6 @@ static const char* CONTACT_INSTAGRAM = "@sqwerzyyy";
 static const char* CONTACT_LINKEDIN  = "linkedin.com/in/oleg-avtonomov-93a437380";
 static const char* CONTACT_GITHUB    = "github.com/Sqwerzyyy";
 
-// ─── Candle color scheme presets ─────────────────────────────────────────
 struct ColorScheme { const char* name; Color up; Color down; };
 static const ColorScheme SCHEMES[] = {
     {"Classic",              Color::RGB( 38, 222, 129), Color::RGB(252,  92, 101)},
@@ -37,7 +36,6 @@ static const ColorScheme SCHEMES[] = {
 };
 static constexpr int SCHEME_COUNT = 3;
 
-// ─── Config persistence ───────────────────────────────────────────────────
 static std::string config_path() {
     const char* h = std::getenv("HOME");
     return h ? std::string(h) + "/.bloomberg_terminal_config"
@@ -54,7 +52,6 @@ static void save_scheme_index(int idx) {
     if (f.is_open()) f << idx << "\n";
 }
 
-// ─── Splash screen — info page ────────────────────────────────────────────
 static Element splash_info_page() {
     auto C = [](const char* s) {
         return hbox({filler(), text(s) | color(Color::Cyan) | bold, filler()});
@@ -108,7 +105,6 @@ static Element splash_info_page() {
     });
 }
 
-// ─── Splash screen — color selection page ─────────────────────────────────
 static Element splash_color_page(int sel) {
     Elements rows;
     for (int i = 0; i < SCHEME_COUNT; ++i) {
@@ -480,7 +476,6 @@ static MCResult run_mc(double S0, double sigma, int days, int sims) {
     return r;
 }
 
-// ─── Probability distribution — dynamic-height custom node ───────────────
 namespace {
 class DistributionChartNode : public Node {
 public:
@@ -512,7 +507,6 @@ public:
             int sy  = by0 + row_from_top;
             if (sy > by1) break;
 
-            // Price label (left column)
             double price = (total_h > 1)
                 ? p5 + (double)row / (total_h - 1) * range
                 : p5;
@@ -533,7 +527,6 @@ public:
                             : frac < 0.50 ? Color::Yellow
                             :               Color::Green;
 
-            // Bar characters for each distribution bin
             for (int b = 0; b < B; ++b) {
                 int sx = bx0 + LABEL_W + b;
                 if (sx > bx1) break;
@@ -653,12 +646,10 @@ Element render_risk(AppState& st) {
 }
 
 int main() {
-    // ─── Load color scheme (skip color-selection step if config exists) ──
     int scheme_idx       = load_scheme_index();
     const bool has_config = (scheme_idx >= 0);
     if (!has_config) scheme_idx = 0;
 
-    // ─── Splash screen ───────────────────────────────────────────────────
     {
         bool in_color_sel = false;
         auto splash = ScreenInteractive::Fullscreen();
@@ -684,7 +675,6 @@ int main() {
         splash.Loop(splash_ev);
     }
 
-    // ─── Main application ────────────────────────────────────────────────
     auto state = std::make_shared<AppState>();
     state->candle_up_color   = SCHEMES[scheme_idx].up;
     state->candle_down_color = SCHEMES[scheme_idx].down;
