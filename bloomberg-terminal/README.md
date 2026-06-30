@@ -1,5 +1,17 @@
 # Quaanz Terminal
 
+```
+ ██████╗ ██╗   ██╗ █████╗  █████╗ ███╗   ██╗███████╗
+██╔═══██╗██║   ██║██╔══██╗██╔══██╗████╗  ██║╚════██║
+██║   ██║██║   ██║███████║███████║██╔██╗ ██║    ██╔╝
+██║   ██║██║   ██║██╔══██║██╔══██║██║╚██╗██║   ██╔╝ 
+╚██████╔╝╚██████╔╝██║  ██║██║  ██║██║ ╚████║  ██╔╝  
+ ╚═════╝  ╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝╚═╝  ╚═══╝╚══════╝
+              T  E  R  M  I  N  A  L
+```
+
+![C++20](https://img.shields.io/badge/C%2B%2B-20-blue.svg) ![FTXUI](https://img.shields.io/badge/UI-FTXUI-orange.svg) ![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)
+
 A Bloomberg-inspired financial terminal that runs entirely inside your command line. It pulls live market data from Yahoo Finance, displays candlestick charts, and lets you chat with an AI assistant about any asset. Built in C++ with no web browser, no Electron, no subscriptions — just a fast terminal application.
 
 > Quaanz is an independent open-source project, inspired by professional financial terminals, and is not affiliated with or endorsed by Bloomberg L.P. or any financial data provider.
