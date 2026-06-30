@@ -213,6 +213,8 @@ ollama serve
 
 Leave that window open. Now start Quaanz in another terminal window — it will detect Ollama automatically and show it in the model dropdown on the AI Terminal tab.
 
+> Note: the free tier uses a lightweight 3B parameter model (llama3.2), which runs entirely on your own machine at no cost. Response quality and consistency will be noticeably lower than the paid Claude option — for best results, use full sentences rather than single words or short greetings. If you need more reliable, higher-quality responses, use the Claude option instead.
+
 ---
 
 ### Option B: Claude by Anthropic (paid)
