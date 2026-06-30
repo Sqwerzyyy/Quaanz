@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(bloomberg-terminal VERSION 7.0.0 LANGUAGES CXX)
+project(quaanz VERSION 7.0.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -24,17 +24,17 @@ FetchContent_MakeAvailable(ftxui)
 
 find_package(Threads REQUIRED)
 
-add_executable(bloomberg-terminal
+add_executable(quaanz
     src/main.cpp
     src/data.cpp
     src/HighResChart.cpp
 )
 
-target_include_directories(bloomberg-terminal PRIVATE
+target_include_directories(quaanz PRIVATE
     ${CMAKE_SOURCE_DIR}/include
 )
 
-target_link_libraries(bloomberg-terminal PRIVATE
+target_link_libraries(quaanz PRIVATE
     ftxui::screen
     ftxui::dom
     ftxui::component
@@ -42,5 +42,5 @@ target_link_libraries(bloomberg-terminal PRIVATE
     m
 )
 
-install(TARGETS bloomberg-terminal RUNTIME DESTINATION bin)
+install(TARGETS quaanz RUNTIME DESTINATION bin)
 message(STATUS "Build type: ${CMAKE_BUILD_TYPE}")

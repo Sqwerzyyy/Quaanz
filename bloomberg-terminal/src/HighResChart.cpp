@@ -74,10 +74,12 @@ ChartData build_chart_data(const std::string& sym,
     for (const auto& c : hist) {
         cd.prices.push_back(c.close);
         cd.volumes.push_back((double)c.volume);
+        cd.candles.push_back(c);
     }
     return cd;
 }
 
+// Used by render_braille_chart (kept for completeness)
 static void fill_canvas(const ChartData& data, BrailleCanvas& canvas,
                         int width, int height, double& mn_out, double& mx_out)
 {
@@ -97,33 +99,37 @@ static void fill_canvas(const ChartData& data, BrailleCanvas& canvas,
     double range = mx - mn;
     mn_out = mn; mx_out = mx;
 
-    int prev_py = -1;
+    int prev_px = -1, prev_py = -1;
     for (size_t i = 0; i < n; ++i) {
         double p = data.prices[start + i];
         int px = (int)(i * (pw - 1) / std::max((size_t)1, n - 1));
         int py = ph - 1 - (int)((p - mn) / range * (ph - 1));
         py = std::max(0, std::min(ph - 1, py));
         canvas.set(px, py);
-        if (prev_py >= 0 && px > 0) {
-            int y1 = std::min(py, prev_py);
-            int y2 = std::max(py, prev_py);
-            for (int y = y1; y <= y2; ++y) canvas.set(px, y);
+        if (prev_px >= 0 && px > prev_px) {
+            for (int x = prev_px; x <= px; ++x) {
+                double t = (double)(x - prev_px) / (px - prev_px);
+                int y = (int)std::lround(prev_py + t * (py - prev_py));
+                canvas.set(x, y);
+            }
         }
+        prev_px = px;
         prev_py = py;
     }
 }
 
 namespace {
-class ChartNode : public Node {
+
+class CandleChartNode : public Node {
 public:
-    ChartNode(ChartData data, Color color)
-        : data_(std::move(data)), color_(color) {}
+    CandleChartNode(ChartData data, Color up_color, Color down_color)
+        : data_(std::move(data)), up_color_(up_color), down_color_(down_color) {}
 
     void ComputeRequirement() override {
         requirement_.min_x = 24;
         requirement_.min_y = 6;
-        requirement_.flex_grow_x = 1;
-        requirement_.flex_grow_y = 1;
+        requirement_.flex_grow_x   = 1;
+        requirement_.flex_grow_y   = 1;
         requirement_.flex_shrink_x = 1;
         requirement_.flex_shrink_y = 1;
     }
@@ -136,91 +142,164 @@ public:
         if (total_w < 4 || total_h < 2) return;
 
         int label_w = 9;
-        int width  = total_w - label_w;
-        int height = total_h - 1;
-        if (width < 4 || height < 1) { width = std::max(1, total_w); height = std::max(1, total_h); label_w = 0; }
+        int chart_w = total_w - label_w;
+        int chart_h = total_h - 1;   // last row reserved for X axis
+        if (chart_w < 1 || chart_h < 1) {
+            chart_w = std::max(1, total_w);
+            chart_h = std::max(1, total_h);
+            label_w = 0;
+        }
 
-        if (data_.prices.empty()) {
+        if (data_.candles.empty()) {
             std::string msg = "no data";
-            int mxp = bx0 + std::max(0, (total_w - (int)msg.size()) / 2);
-            int myp = by0 + total_h / 2;
-            for (size_t i = 0; i < msg.size() && mxp + (int)i <= bx1; ++i) {
-                Pixel& px = screen.PixelAt(mxp + (int)i, myp);
+            int mx = bx0 + std::max(0, (total_w - (int)msg.size()) / 2);
+            int my = by0 + total_h / 2;
+            for (size_t i = 0; i < msg.size() && mx + (int)i <= bx1; ++i) {
+                Pixel& px = screen.PixelAt(mx + (int)i, my);
                 px.character = std::string(1, msg[i]);
                 px.foreground_color = Color::GrayDark;
             }
             return;
         }
 
-        BrailleCanvas canvas(width, height);
-        double mn = 0, mx = 0;
-        fill_canvas(data_, canvas, width, height, mn, mx);
-        double range = mx - mn;
+        int n = (int)data_.candles.size();
 
-        for (int row = 0; row < height; ++row) {
+        // One aggregated OHLC candle per visible column
+        struct DisplayCandle {
+            double open = 0, high = 0, low = 0, close = 0;
+            bool valid = false;
+        };
+        std::vector<DisplayCandle> display(chart_w);
+
+        if (n >= chart_w) {
+            // Downsample: merge groups into one column each
+            for (int col = 0; col < chart_w; ++col) {
+                int i0 = (int)((long long)col       * n / chart_w);
+                int i1 = (int)((long long)(col + 1) * n / chart_w);
+                if (i1 <= i0) i1 = i0 + 1;
+                if (i1 > n)   i1 = n;
+                if (i0 >= n)  continue;
+                double high = data_.candles[i0].high;
+                double low  = data_.candles[i0].low;
+                for (int k = i0 + 1; k < i1; ++k) {
+                    high = std::max(high, data_.candles[k].high);
+                    low  = std::min(low,  data_.candles[k].low);
+                }
+                display[col] = {data_.candles[i0].open, high, low,
+                                 data_.candles[i1 - 1].close, true};
+            }
+        } else {
+            // Fewer candles than columns — left-align (oldest on left, newest where data ends)
+            for (int i = 0; i < n; ++i) {
+                const auto& c = data_.candles[i];
+                display[i] = {c.open, c.high, c.low, c.close, true};
+            }
+        }
+
+        // Y range from all valid candles (high/low, not just close)
+        double mn = 1e18, mx_p = -1e18;
+        for (const auto& dc : display) {
+            if (!dc.valid) continue;
+            mn   = std::min(mn,   dc.low);
+            mx_p = std::max(mx_p, dc.high);
+        }
+        if (mx_p <= mn) { mx_p = mn + 1.0; }
+        if (mx_p == mn) { mx_p += std::abs(mx_p) * 0.01 + 1.0; mn -= std::abs(mn) * 0.01 + 1.0; }
+        double range = mx_p - mn;
+
+        // Price → terminal row (row 0 = top = highest price)
+        auto price_to_row = [&](double price) -> int {
+            int row = (int)std::round((mx_p - price) / range * (chart_h - 1));
+            return std::clamp(row, 0, chart_h - 1);
+        };
+
+        // Y-axis labels (same style as original ChartNode)
+        for (int row = 0; row < chart_h; ++row) {
             int sy = by0 + row;
             if (sy > by1) break;
             if (label_w > 0) {
-                double price_at_row = (height > 1)
-                    ? mx - (double)row / (height - 1) * range
-                    : mx;
+                double price_at_row = (chart_h > 1)
+                    ? mx_p - (double)row / (chart_h - 1) * range
+                    : mx_p;
                 std::ostringstream lbl;
                 lbl << std::fixed << std::setprecision(2)
                     << std::setw(label_w - 1) << price_at_row;
                 std::string ls = lbl.str();
-                if ((int)ls.size() > label_w - 1)
-                    ls = ls.substr(0, label_w - 1);
+                if ((int)ls.size() > label_w - 1) ls = ls.substr(0, label_w - 1);
                 for (int c = 0; c < (int)ls.size() && bx0 + c <= bx1; ++c) {
-                    Pixel& px = screen.PixelAt(bx0 + c, sy);
-                    px.character = std::string(1, ls[c]);
-                    px.foreground_color = Color::GrayDark;
+                    Pixel& p = screen.PixelAt(bx0 + c, sy);
+                    p.character = std::string(1, ls[c]);
+                    p.foreground_color = Color::GrayDark;
                 }
                 int sepx = bx0 + label_w - 1;
                 if (sepx <= bx1) {
-                    Pixel& px = screen.PixelAt(sepx, sy);
-                    px.character = "\u2502";
-                    px.foreground_color = Color::GrayDark;
+                    Pixel& p = screen.PixelAt(sepx, sy);
+                    p.character = "│";   // │
+                    p.foreground_color = Color::GrayDark;
                 }
-            }
-            for (int col = 0; col < width; ++col) {
-                int sx = bx0 + label_w + col;
-                if (sx > bx1) break;
-                std::string g = canvas.cell(col, row);
-                if (g == " ") continue;
-                Pixel& px = screen.PixelAt(sx, sy);
-                px.character = g;
-                px.foreground_color = color_;
             }
         }
 
-        int axis_y = by0 + height;
+        // Draw candles
+        for (int col = 0; col < chart_w; ++col) {
+            const auto& dc = display[col];
+            if (!dc.valid) continue;
+
+            int sx = bx0 + label_w + col;
+            if (sx > bx1) break;
+
+            bool  up         = (dc.close >= dc.open);
+            Color candle_col = up ? up_color_ : down_color_;
+
+            int high_row = price_to_row(dc.high);
+            int low_row  = price_to_row(dc.low);
+            int body_top = std::min(price_to_row(dc.open), price_to_row(dc.close));
+            int body_bot = std::max(price_to_row(dc.open), price_to_row(dc.close));
+
+            for (int row = high_row; row <= low_row; ++row) {
+                int sy = by0 + row;
+                if (sy < by0 || sy > by1) continue;
+                Pixel& p = screen.PixelAt(sx, sy);
+                if (row >= body_top && row <= body_bot) {
+                    p.character = "█";   // █ full block = body
+                } else {
+                    p.character = "│";   // │ thin line   = wick
+                }
+                p.foreground_color = candle_col;
+            }
+        }
+
+        // X axis
+        int axis_y = by0 + chart_h;
         if (axis_y <= by1) {
             if (label_w > 0) {
                 int corner = bx0 + label_w - 1;
                 if (corner <= bx1) {
-                    Pixel& px = screen.PixelAt(corner, axis_y);
-                    px.character = "\u2514";
-                    px.foreground_color = Color::GrayDark;
+                    Pixel& p = screen.PixelAt(corner, axis_y);
+                    p.character = "└";   // └
+                    p.foreground_color = Color::GrayDark;
                 }
             }
-            for (int col = 0; col < width; ++col) {
+            for (int col = 0; col < chart_w; ++col) {
                 int sx = bx0 + label_w + col;
                 if (sx > bx1) break;
-                Pixel& px = screen.PixelAt(sx, axis_y);
-                px.character = "\u2500";
-                px.foreground_color = Color::GrayDark;
+                Pixel& p = screen.PixelAt(sx, axis_y);
+                p.character = "─";       // ─
+                p.foreground_color = Color::GrayDark;
             }
         }
     }
 
 private:
     ChartData data_;
-    Color     color_;
+    Color     up_color_;
+    Color     down_color_;
 };
-}
 
-Element chart_element(ChartData data, Color line_color) {
-    return std::make_shared<ChartNode>(std::move(data), line_color);
+} // namespace
+
+Element candle_chart_element(ChartData data, Color up_color, Color down_color) {
+    return std::make_shared<CandleChartNode>(std::move(data), up_color, down_color);
 }
 
 std::vector<std::string> render_braille_chart(const ChartData& data,
@@ -242,7 +321,7 @@ std::vector<std::string> render_braille_chart(const ChartData& data,
         std::string line;
         double price_at_row = mx - (double)row / (height - 1) * range;
         std::ostringstream lbl;
-        lbl << std::fixed << std::setprecision(2) << std::setw(label_w - 1) << price_at_row << "\u2502";
+        lbl << std::fixed << std::setprecision(2) << std::setw(label_w - 1) << price_at_row << "│";
         line += lbl.str();
         for (int col = 0; col < width; ++col)
             line += canvas.cell(col, row);
@@ -250,8 +329,8 @@ std::vector<std::string> render_braille_chart(const ChartData& data,
     }
 
     std::string xaxis(label_w, ' ');
-    xaxis += "\u2514";
-    for (int i = 1; i < width; ++i) xaxis += "\u2500";
+    xaxis += "└";
+    for (int i = 1; i < width; ++i) xaxis += "─";
     lines.push_back(xaxis);
 
     return lines;

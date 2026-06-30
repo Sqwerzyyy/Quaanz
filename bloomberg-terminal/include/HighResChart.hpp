@@ -17,8 +17,9 @@ struct BrailleCanvas {
 };
 
 struct ChartData {
-    std::vector<double> prices;
+    std::vector<double> prices;   // close prices — kept for render_braille_chart / sparkline
     std::vector<double> volumes;
+    std::vector<Candle> candles;  // full OHLC for candlestick chart
     std::string symbol;
     double current_price = 0;
     double change_pct    = 0;
@@ -38,6 +39,8 @@ ChartData build_chart_data(const std::string& sym,
 std::vector<std::string> render_braille_chart(const ChartData& data,
                                                int width, int height);
 
-ftxui::Element chart_element(ChartData data, ftxui::Color line_color);
+ftxui::Element candle_chart_element(ChartData data,
+                                     ftxui::Color up_color,
+                                     ftxui::Color down_color);
 
 std::string render_sparkline(const std::deque<Candle>& hist, int width);

@@ -173,7 +173,9 @@ void MarketData::refresh_all_live() {
                 fetch_status_ = "Fetching " + sym + " (" + std::to_string(i+1)
                               + "/" + std::to_string(N_UNIVERSE) + ")";
             }
-            auto r = yahoo_fetch(sym);
+            std::string sector = UNIVERSE[i].sector;
+            std::string fetch_sym = (sector == "Crypto") ? sym + "-USD" : sym;
+            auto r = yahoo_fetch(fetch_sym);
             if (r.ok) {
                 std::lock_guard<std::mutex> lk(mu_);
                 apply_result(sym, r);
@@ -551,11 +553,11 @@ std::string AIAnalyst::call_claude(const std::string& key,
         "-d @" + tmpfile + " "
         "https://api.anthropic.com/v1/messages 2>/dev/null";
     FILE* pipe = popen(cmd.c_str(), "r");
-    std::remove(tmpfile.c_str());
-    if (!pipe) return {};
+    if (!pipe) { std::remove(tmpfile.c_str()); return {}; }
     std::string result; std::array<char,4096> buf;
     while (fgets(buf.data(), buf.size(), pipe)) result += buf.data();
     pclose(pipe);
+    std::remove(tmpfile.c_str());
     return result;
 }
 
@@ -577,11 +579,11 @@ std::string AIAnalyst::call_ollama(const std::string& model,
         "-d @" + tmpfile + " "
         + ollama_host_ + "/api/chat 2>/dev/null";
     FILE* pipe = popen(cmd.c_str(), "r");
-    std::remove(tmpfile.c_str());
-    if (!pipe) return {};
+    if (!pipe) { std::remove(tmpfile.c_str()); return {}; }
     std::string result; std::array<char,4096> buf;
     while (fgets(buf.data(), buf.size(), pipe)) result += buf.data();
     pclose(pipe);
+    std::remove(tmpfile.c_str());
     return result;
 }
 
@@ -673,12 +675,27 @@ void AIAnalyst::chat(const std::string& user_prompt,
         history_.push_back({ChatMessage::USER, user_prompt, now_ts()});
     }
     std::string ctx = build_market_context(quotes, summary);
-    std::string full_prompt = ctx + "\n\nUser question: " + user_prompt;
+    std::string full_prompt = user_prompt
+        + "\n\nReference market data (use only if relevant):\n" + ctx;
     if (worker_.joinable()) worker_.join();
     worker_ = std::thread([this, full_prompt, backend_snap, model_snap, key_snap]() {
-        std::string sys = "You are an expert financial analyst and quant. "
-            "Answer concisely and specifically. Use market context provided. "
-            "Focus on actionable insights. Max 3 paragraphs.";
+        std::string sys =
+            "You are a helpful, friendly assistant integrated into a financial terminal app. "
+            "Talk naturally about anything the user brings up — casual conversation, questions, requests for help, whatever. "
+            "You also have access to live market data (prices, sectors, gainers/losers) which is provided at the end of each message as reference context. "
+            "Use it only when the user's question is actually about markets, specific assets, sectors, or their portfolio. "
+            "For everything else, just respond like a normal conversational assistant — no need to mention markets or analysis unless asked. "
+            "Be concise. Max 3 paragraphs.\n\n"
+            "LANGUAGE RULE: Always reply in the same language the user's message is written in. "
+            "Never switch languages partway through a response, even if the reference data below is in English.\n\n"
+            "TONE RULE: For short casual messages (greetings, small talk, simple questions), "
+            "reply in 1-2 sentences max — sound like a normal person, not a support bot. No bullet points, no disclaimers.\n\n"
+            "Example:\n"
+            "User: привет\n"
+            "You: Привет! Как сам? Что интересного?\n\n"
+            "Example:\n"
+            "User: hi\n"
+            "You: Hey! What's up?";
         std::string raw = call_api(backend_snap, model_snap, key_snap, sys, full_prompt);
         std::string text = extract_text(backend_snap, raw);
         if (text.empty()) {

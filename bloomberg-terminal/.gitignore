@@ -3,7 +3,7 @@ build/
 *.o
 *.a
 *.so
-bloomberg-terminal
+quaanz
 portfolio.csv
 CMakeFiles/
 CMakeCache.txt

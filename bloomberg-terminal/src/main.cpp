@@ -2,7 +2,9 @@
 #include <ftxui/component/component_base.hpp>
 #include <ftxui/component/screen_interactive.hpp>
 #include <ftxui/dom/elements.hpp>
+#include <ftxui/dom/node.hpp>
 #include <ftxui/screen/color.hpp>
+#include <ftxui/screen/screen.hpp>
 
 #include "terminal.hpp"
 #include "HighResChart.hpp"
@@ -10,6 +12,8 @@
 #include <algorithm>
 #include <atomic>
 #include <cmath>
+#include <cstdlib>
+#include <fstream>
 #include <iomanip>
 #include <mutex>
 #include <sstream>
@@ -18,6 +22,127 @@
 #include <vector>
 
 using namespace ftxui;
+
+// ─── Author contacts — edit here to update the splash screen ─────────────
+static const char* CONTACT_INSTAGRAM = "@sqwerzyyy";
+static const char* CONTACT_LINKEDIN  = "linkedin.com/in/oleg-avtonomov-93a437380";
+static const char* CONTACT_GITHUB    = "github.com/Sqwerzyyy";
+
+// ─── Candle color scheme presets ─────────────────────────────────────────
+struct ColorScheme { const char* name; Color up; Color down; };
+static const ColorScheme SCHEMES[] = {
+    {"Classic",              Color::RGB( 38, 222, 129), Color::RGB(252,  92, 101)},
+    {"Colorblind-friendly",  Color::RGB( 52, 152, 219), Color::RGB(230, 126,  34)},
+    {"Cyan / Magenta",       Color::RGB(  0, 210, 211), Color::RGB(255,  71, 182)},
+};
+static constexpr int SCHEME_COUNT = 3;
+
+// ─── Config persistence ───────────────────────────────────────────────────
+static std::string config_path() {
+    const char* h = std::getenv("HOME");
+    return h ? std::string(h) + "/.bloomberg_terminal_config"
+             : ".bloomberg_terminal_config";
+}
+static int load_scheme_index() {
+    std::ifstream f(config_path());
+    if (!f.is_open()) return -1;
+    int idx = 0; f >> idx;
+    return (idx >= 0 && idx < SCHEME_COUNT) ? idx : 0;
+}
+static void save_scheme_index(int idx) {
+    std::ofstream f(config_path());
+    if (f.is_open()) f << idx << "\n";
+}
+
+// ─── Splash screen — info page ────────────────────────────────────────────
+static Element splash_info_page() {
+    auto C = [](const char* s) {
+        return hbox({filler(), text(s) | color(Color::Cyan) | bold, filler()});
+    };
+    auto Y = [](const char* s) {
+        return hbox({filler(), text(s) | color(Color::Yellow) | bold, filler()});
+    };
+
+    auto title_box = vbox({
+        text(""),
+        C(" ██████╗ ██╗   ██╗ █████╗  █████╗ ███╗   ██╗███████╗"),
+        C("██╔═══██╗██║   ██║██╔══██╗██╔══██╗████╗  ██║╚════██║"),
+        C("██║   ██║██║   ██║███████║███████║██╔██╗ ██║    ██╔╝"),
+        C("██║   ██║██║   ██║██╔══██║██╔══██║██║╚██╗██║   ██╔╝ "),
+        C("╚██████╔╝╚██████╔╝██║  ██║██║  ██║██║ ╚████║  ██╔╝  "),
+        C(" ╚═════╝  ╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝╚═╝  ╚═══╝╚══════╝"),
+        Y("              T  E  R  M  I  N  A  L              "),
+        text(""),
+    });
+
+    auto contacts = vbox({
+        text(" AUTHOR ") | bold | bgcolor(Color::Cyan) | color(Color::Black),
+        hbox({text("  Instagram : ") | color(Color::GrayLight),
+              text(CONTACT_INSTAGRAM) | bold | color(Color::Cyan)}),
+        hbox({text("  LinkedIn  : ") | color(Color::GrayLight),
+              text(CONTACT_LINKEDIN)  | color(Color::White)}),
+        hbox({text("  GitHub    : ") | color(Color::GrayLight),
+              text(CONTACT_GITHUB)    | color(Color::White)}),
+    }) | border;
+
+    auto guide = vbox({
+        text(" KEYBOARD CONTROLS ") | bold | bgcolor(Color::Yellow) | color(Color::Black),
+        hbox({text("  [1] Markets      ") | color(Color::White),
+              text("[2] AI Terminal    ") | color(Color::White),
+              text("[3] Risk")            | color(Color::White)}),
+        hbox({text("  [↑/↓] Navigate watchlist    ") | color(Color::White),
+              text("[Tab] Switch sector")            | color(Color::White)}),
+        hbox({text("  [A] Quick AI analysis        ") | color(Color::White),
+              text("[+/-] Adjust risk sigma")         | color(Color::White)}),
+        text("  [Q] Quit") | color(Color::White),
+    }) | border;
+
+    return vbox({
+        title_box,
+        hbox({contacts | flex, separator(), guide | flex}),
+        separator(),
+        hbox({filler(),
+              text("  Press any key to continue...") | color(Color::GrayDark) | bold,
+              filler()}),
+        text(""),
+    });
+}
+
+// ─── Splash screen — color selection page ─────────────────────────────────
+static Element splash_color_page(int sel) {
+    Elements rows;
+    for (int i = 0; i < SCHEME_COUNT; ++i) {
+        bool is_sel = (i == sel);
+        auto row = hbox({
+            text(is_sel ? " ► " : "   ") | bold | color(Color::Yellow),
+            text(std::string(1, char('1' + i)) + ". ") | color(Color::GrayLight),
+            text(SCHEMES[i].name) | color(Color::White) | (is_sel ? bold : nothing),
+            text("     "),
+            text("█████") | color(SCHEMES[i].up)   | bold,
+            text("  "),
+            text("█████") | color(SCHEMES[i].down) | bold,
+            filler(),
+        });
+        if (is_sel) row = row | bgcolor(Color::GrayDark);
+        rows.push_back(row);
+    }
+
+    return vbox({
+        text(""),
+        hbox({filler(),
+              text(" SELECT CANDLE COLOR SCHEME ") | bold | bgcolor(Color::Yellow) | color(Color::Black),
+              filler()}),
+        text(""),
+        hbox({filler(),
+              vbox(std::move(rows)) | border | size(WIDTH, EQUAL, 54),
+              filler()}),
+        text(""),
+        hbox({filler(),
+              text("  [↑/↓] select   [Enter] confirm") | color(Color::GrayDark) | bold,
+              filler()}),
+        text(""),
+    }) | flex;
+}
 
 static std::string fmt2(double v) {
     std::ostringstream s; s << std::fixed << std::setprecision(2) << v; return s.str();
@@ -64,6 +189,9 @@ struct AppState {
 
     std::atomic<bool> running{true};
     std::mutex        mu;
+
+    Color candle_up_color   = Color::RGB( 38, 222, 129);
+    Color candle_down_color = Color::RGB(252,  92, 101);
 };
 
 Element render_markets(AppState& st) {
@@ -138,7 +266,7 @@ Element render_markets(AppState& st) {
     Element chart_panel = vbox({
         chart_title | size(HEIGHT, EQUAL, 1),
         separator(),
-        chart_element(cd, line_color) | flex,
+        candle_chart_element(cd, st.candle_up_color, st.candle_down_color) | flex,
     }) | border | flex;
 
     Elements stats;
@@ -313,7 +441,7 @@ Element render_ai_terminal(AppState& st, const AITerminalState& ait, Element mod
             hbox({
                 text("  "),
                 text(frames[spin % 10]) | color(Color::Yellow),
-                text("  Claude is thinking...") | color(Color::Yellow) | bold,
+                text("  " + st.ai.backend_label() + " is thinking...") | color(Color::Yellow) | bold,
             })
         );
     }
@@ -352,6 +480,86 @@ static MCResult run_mc(double S0, double sigma, int days, int sims) {
     return r;
 }
 
+// ─── Probability distribution — dynamic-height custom node ───────────────
+namespace {
+class DistributionChartNode : public Node {
+public:
+    explicit DistributionChartNode(MCResult mc) : mc_(std::move(mc)) {}
+
+    void ComputeRequirement() override {
+        requirement_.min_x         = 24;
+        requirement_.min_y         = 2;
+        requirement_.flex_grow_x   = 1;
+        requirement_.flex_grow_y   = 1;
+        requirement_.flex_shrink_x = 1;
+        requirement_.flex_shrink_y = 1;
+    }
+
+    void Render(Screen& screen) override {
+        int by0 = box_.y_min, by1 = box_.y_max;
+        int bx0 = box_.x_min, bx1 = box_.x_max;
+        int total_h = by1 - by0 + 1;
+        if (total_h < 1) return;
+
+        static constexpr int LABEL_W = 11;  // "XXXXX.XX |"
+        int    B     = (int)mc_.distribution.size();
+        double p5    = mc_.percentiles[0];
+        double p95   = mc_.percentiles[4];
+        double range = p95 - p5;
+
+        for (int row_from_top = 0; row_from_top < total_h; ++row_from_top) {
+            int row = total_h - 1 - row_from_top;  // 0 = bottom = lowest price
+            int sy  = by0 + row_from_top;
+            if (sy > by1) break;
+
+            // Price label (left column)
+            double price = (total_h > 1)
+                ? p5 + (double)row / (total_h - 1) * range
+                : p5;
+            std::ostringstream lbl;
+            lbl << std::fixed << std::setprecision(2)
+                << std::setw(LABEL_W - 2) << price << " |";
+            std::string ls = lbl.str();
+            if ((int)ls.size() > LABEL_W) ls = ls.substr(0, LABEL_W);
+            for (int c = 0; c < (int)ls.size() && bx0 + c <= bx1; ++c) {
+                Pixel& px = screen.PixelAt(bx0 + c, sy);
+                px.character        = std::string(1, ls[c]);
+                px.foreground_color = Color::GrayLight;
+            }
+
+            // Color gradient: bottom (low price) = Red, mid = Yellow, top = Green
+            double frac = (total_h > 1) ? (double)row / (total_h - 1) : 1.0;
+            Color bar_color = frac < 0.25 ? Color::Red
+                            : frac < 0.50 ? Color::Yellow
+                            :               Color::Green;
+
+            // Bar characters for each distribution bin
+            for (int b = 0; b < B; ++b) {
+                int sx = bx0 + LABEL_W + b;
+                if (sx > bx1) break;
+                double h = mc_.distribution[b] * total_h;
+                const char* ch;
+                if      (h >= row + 1.00) ch = "█";
+                else if (h >= row + 0.75) ch = "▇";
+                else if (h >= row + 0.50) ch = "▄";
+                else if (h >= row + 0.25) ch = "▂";
+                else                      ch = " ";
+                Pixel& px = screen.PixelAt(sx, sy);
+                px.character        = ch;
+                px.foreground_color = bar_color;
+            }
+        }
+    }
+
+private:
+    MCResult mc_;
+};
+} // namespace
+
+static Element distribution_chart_element(MCResult mc) {
+    return std::make_shared<DistributionChartNode>(std::move(mc));
+}
+
 Element render_risk(AppState& st) {
     std::lock_guard<std::mutex> lk(st.mu);
     const Quote* q = st.md.get(st.chart_sym);
@@ -366,7 +574,7 @@ Element render_risk(AppState& st) {
     params.push_back(pr("Asset   ", st.chart_sym));
     params.push_back(pr("Price   ", "$" + fmt2(S0)));
     params.push_back(pr("Sigma   ", fmt2(st.mc_sigma * 100) + "%", Color::Cyan));
-    params.push_back(pr("Horizon ", std::to_string(st.mc_days) + " days", Color::Cyan));
+    params.push_back(pr("Horizon ", std::to_string(st.mc_days) + " days  [T]", Color::Cyan));
     params.push_back(pr("Sims    ", std::to_string(st.mc_sims), Color::Cyan));
     params.push_back(separator());
     params.push_back(text(" RISK METRICS ") | bold | bgcolor(Color::Yellow) | color(Color::Black));
@@ -386,47 +594,29 @@ Element render_risk(AppState& st) {
         }));
     }
     params.push_back(separator());
-    params.push_back(text("[+/-] sigma  [A] AI analysis") | color(Color::GrayDark));
+    params.push_back(text("[+/-] sigma  [T] horizon  [A] AI analysis") | color(Color::GrayDark));
 
-    Elements dist;
-    dist.push_back(hbox({
-        text(" PROBABILITY DISTRIBUTION  ") | bold | color(Color::Yellow),
-        text(std::to_string(st.mc_sims) + " simulations") | color(Color::GrayLight),
-    }));
-    int ch_h = 14;
-    for (int row = ch_h - 1; row >= 0; --row) {
-        std::string line;
-        for (int b = 0; b < (int)mc.distribution.size(); ++b) {
-            double h = mc.distribution[b] * ch_h;
-            if      (h >= row + 1.0)  line += "█";
-            else if (h >= row + 0.75) line += "▇";
-            else if (h >= row + 0.5)  line += "▄";
-            else if (h >= row + 0.25) line += "▂";
-            else                      line += " ";
-        }
-        double frac = (double)row / ch_h;
-        Color c = frac < 0.25 ? Color::Red : frac < 0.5 ? Color::Yellow : Color::Green;
-        dist.push_back(hbox({
-            text(fmt2(mc.percentiles[0] + (double)row / ch_h *
-                      (mc.percentiles[4] - mc.percentiles[0])) + " |")
-                | color(Color::GrayLight) | size(WIDTH, EQUAL, 11),
-            text(line) | color(c),
-        }));
-    }
-    dist.push_back(hbox({
-        text("            ") | color(Color::GrayLight),
-        text("$" + fmt2(mc.percentiles[0])) | color(Color::Red),
-        filler(),
-        text("$" + fmt2(mc.percentiles[2])) | color(Color::White),
-        filler(),
-        text("$" + fmt2(mc.percentiles[4])) | color(Color::Green),
-    }));
-    dist.push_back(hbox({
-        text("            ") | color(Color::GrayLight),
-        text("P5") | color(Color::Red), filler(),
-        text("Median") | color(Color::White), filler(),
-        text("P95") | color(Color::Green),
-    }));
+    auto dist_panel = vbox({
+        hbox({
+            text(" PROBABILITY DISTRIBUTION  ") | bold | color(Color::Yellow),
+            text(std::to_string(st.mc_sims) + " simulations") | color(Color::GrayLight),
+        }),
+        distribution_chart_element(mc) | flex,
+        hbox({
+            text("            ") | color(Color::GrayLight),
+            text("$" + fmt2(mc.percentiles[0])) | color(Color::Red),
+            filler(),
+            text("$" + fmt2(mc.percentiles[2])) | color(Color::White),
+            filler(),
+            text("$" + fmt2(mc.percentiles[4])) | color(Color::Green),
+        }),
+        hbox({
+            text("            ") | color(Color::GrayLight),
+            text("P5") | color(Color::Red), filler(),
+            text("Median") | color(Color::White), filler(),
+            text("P95") | color(Color::Green),
+        }),
+    });
 
     Elements sect;
     sect.push_back(text(" SECTOR PERFORMANCE ") | bold | bgcolor(Color::Yellow) | color(Color::Black));
@@ -456,14 +646,49 @@ Element render_risk(AppState& st) {
     return hbox({
         vbox(params) | border | size(WIDTH, EQUAL, 32),
         separator(),
-        vbox(dist)   | border | flex,
+        dist_panel   | border | flex,
         separator(),
         vbox(sect)   | border | size(WIDTH, EQUAL, 28),
     });
 }
 
 int main() {
+    // ─── Load color scheme (skip color-selection step if config exists) ──
+    int scheme_idx       = load_scheme_index();
+    const bool has_config = (scheme_idx >= 0);
+    if (!has_config) scheme_idx = 0;
+
+    // ─── Splash screen ───────────────────────────────────────────────────
+    {
+        bool in_color_sel = false;
+        auto splash = ScreenInteractive::Fullscreen();
+        auto rend = Renderer([&]() -> Element {
+            return in_color_sel ? splash_color_page(scheme_idx)
+                                : splash_info_page();
+        });
+        auto splash_ev = CatchEvent(rend, [&](Event e) -> bool {
+            if (e == Event::Custom) return false;
+            if (!in_color_sel) {
+                if (!has_config) { in_color_sel = true; return true; }
+                splash.ExitLoopClosure()();
+                return true;
+            }
+            if (e == Event::ArrowUp)
+                { scheme_idx = (scheme_idx + SCHEME_COUNT - 1) % SCHEME_COUNT; return true; }
+            if (e == Event::ArrowDown)
+                { scheme_idx = (scheme_idx + 1) % SCHEME_COUNT; return true; }
+            if (e == Event::Return)
+                { save_scheme_index(scheme_idx); splash.ExitLoopClosure()(); return true; }
+            return true;
+        });
+        splash.Loop(splash_ev);
+    }
+
+    // ─── Main application ────────────────────────────────────────────────
     auto state = std::make_shared<AppState>();
+    state->candle_up_color   = SCHEMES[scheme_idx].up;
+    state->candle_down_color = SCHEMES[scheme_idx].down;
+
     auto screen = ScreenInteractive::Fullscreen();
 
     int tab_index = 0;
@@ -475,7 +700,6 @@ int main() {
     auto tab_toggle = Toggle(&tab_names, &tab_index);
 
     AITerminalState ait;
-    std::string input_buf;
 
     std::vector<std::string> model_labels;
     for (auto& m : state->ai.available_models()) model_labels.push_back(m.label);
@@ -486,9 +710,8 @@ int main() {
 
     InputOption input_opt;
     input_opt.on_enter = [&]() {
-        if (input_buf.empty()) return;
-        std::string prompt = input_buf;
-        input_buf.clear();
+        if (ait.input_text.empty()) return;
+        std::string prompt = ait.input_text;
         ait.input_text.clear();
         std::lock_guard<std::mutex> lk(state->mu);
         state->ai.chat(prompt, state->md.all(), state->summary);
@@ -583,7 +806,7 @@ int main() {
         }
 
         auto header = hbox({
-            text(" BLOOMBERG ") | bold | bgcolor(Color::Cyan) | color(Color::Black),
+            text(" QUAANZ ") | bold | bgcolor(Color::Cyan) | color(Color::Black),
             tab_toggle->Render() | flex,
             hbox(mini),
             text(state->md.is_fetching() ? " FETCHING... " : " ")
@@ -696,6 +919,15 @@ int main() {
 
         if (e == Event::Character('+')) { state->mc_sigma = std::min(2.0, state->mc_sigma + 0.05); return true; }
         if (e == Event::Character('-') && tab_index != 1) { state->mc_sigma = std::max(0.05, state->mc_sigma - 0.05); return true; }
+
+        if ((e == Event::Character('T') || e == Event::Character('t')) && tab_index == 2) {
+            int& d = state->mc_days;
+            if      (d < 30)  d = 30;
+            else if (d < 90)  d = 90;
+            else if (d < 180) d = 180;
+            else              d = 7;
+            return true;
+        }
 
         return false;
     });

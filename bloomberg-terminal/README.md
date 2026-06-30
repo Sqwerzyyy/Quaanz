@@ -1,170 +1,318 @@
-# 📈 Bloomberg Terminal (C++)
+# Quaanz Terminal
 
-> A feature-rich, Bloomberg-inspired terminal emulator running entirely in your shell — no internet required, no API keys, no subscriptions.
+A Bloomberg-inspired financial terminal that runs entirely inside your command line. It pulls live market data from Yahoo Finance, displays candlestick charts, and lets you chat with an AI assistant about any asset. Built in C++ with no web browser, no Electron, no subscriptions — just a fast terminal application.
 
-[![Build](https://img.shields.io/badge/build-passing-brightgreen?style=flat-square)](.)
-[![C++17](https://img.shields.io/badge/C%2B%2B-17-blue?style=flat-square&logo=cplusplus)](.)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow?style=flat-square)](LICENSE)
-[![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20WSL-lightgrey?style=flat-square)](.)
+> Quaanz is an independent open-source project, inspired by professional financial terminals, and is not affiliated with or endorsed by Bloomberg L.P. or any financial data provider.
 
-```
- ██████╗ ██╗      ██████╗  ██████╗ ███╗   ███╗██████╗ ███████╗██████╗  ██████╗
- ██╔══██╗██║     ██╔═══██╗██╔═══██╗████╗ ████║██╔══██╗██╔════╝██╔══██╗██╔════╝
- ██████╔╝██║     ██║   ██║██║   ██║██╔████╔██║██████╔╝█████╗  ██████╔╝██║  ███╗
- ██╔══██╗██║     ██║   ██║██║   ██║██║╚██╔╝██║██╔══██╗██╔══╝  ██╔══██╗██║   ██║
- ██████╔╝███████╗╚██████╔╝╚██████╔╝██║ ╚═╝ ██║██████╔╝███████╗██║  ██║╚██████╔╝
- ╚═════╝ ╚══════╝ ╚═════╝  ╚═════╝ ╚═╝     ╚═╝╚═════╝ ╚══════╝╚═╝  ╚═╝ ╚═════╝
-```
+![Demo](docs/demo.gif)
 
 ---
 
 ## Features
 
-| Panel | Description |
-|---|---|
-| **Market Watchlist** | Real-time simulation of 20 assets — stocks, ETFs, crypto, FX. Sparkline charts per ticker. |
-| **Portfolio Manager** | Buy/sell positions, track P&L, auto-save to CSV on exit. |
-| **Price Chart** | ASCII candlestick chart for any symbol with zoom support. |
-| **Options Calculator** | Black-Scholes pricing — Call/Put prices, Greeks (Δ, Γ, ν, θ) across 4 expiries. |
-| **News Feed** | Simulated live market news with urgency highlighting. |
+- Live prices for 55 assets across 5 sectors: Technology, Finance, Crypto, Commodities, and RWA (real-world assets), fetched directly from Yahoo Finance
+- Candlestick chart for any selected asset with dynamic resizing
+- Three selectable candle color schemes (chosen at first launch, saved automatically)
+- AI chat tab: ask questions about any market, sector, or specific ticker — supports Claude (paid, by Anthropic) and any locally running Ollama model (free)
+- Model switcher dropdown inside the app — switch between Claude and Ollama without restarting
+- Live news feed with urgency highlighting
+- Monte Carlo risk simulation with adjustable volatility and time horizon, probability histogram that fills the full terminal height
+- Sector performance overview
 
 ---
 
-## One-line Install (Linux / macOS / WSL)
+## Requirements
 
-```bash
-curl -fsSL https://raw.githubusercontent.com/YOUR_USERNAME/bloomberg-terminal/main/scripts/install.sh | bash
-```
+No external libraries need to be installed manually. The terminal UI library (FTXUI) is downloaded and compiled automatically by CMake the first time you build.
 
-Then run:
-```bash
-bloomberg-terminal
-```
+You do need:
+
+**macOS**
+
+- Xcode Command Line Tools (provides `g++`, `git`, and `make`)
+- CMake
+- `curl` (pre-installed on macOS)
+
+**Linux (Ubuntu or Debian)**
+
+- `build-essential` (provides `g++` and `make`)
+- `cmake`
+- `git`
+- `curl` (used at runtime to fetch market data)
+
+**Windows**
+
+Quaanz runs on Windows through WSL2 (Windows Subsystem for Linux). WSL2 lets you run a full Linux environment inside Windows without a virtual machine. Once WSL is set up, every Linux step below applies exactly.
 
 ---
 
-## Manual Build
+## Installation and build
 
-### Prerequisites
+### macOS
 
-| Tool | Version | Install |
-|---|---|---|
-| g++ or clang++ | ≥ 9 | `sudo apt install build-essential` |
-| CMake | ≥ 3.16 | `sudo apt install cmake` |
-| ncurses (dev) | any | `sudo apt install libncurses-dev` |
+**Step 1 — Install Xcode Command Line Tools**
 
-On **macOS**:
+This installs the C++ compiler and `git`. If you already have Xcode or have done this before, skip it.
+
 ```bash
-brew install cmake ncurses
+xcode-select --install
 ```
 
-### Build Steps
+A dialog will appear asking you to install the tools. Click Install and wait for it to finish.
+
+**Step 2 — Install CMake**
+
+CMake is the build system that compiles the project. If you do not have Homebrew, install it from [brew.sh](https://brew.sh) first.
 
 ```bash
-# Clone
-git clone https://github.com/YOUR_USERNAME/bloomberg-terminal.git
-cd bloomberg-terminal
+brew install cmake
+```
 
-# Configure & build
+**Step 3 — Clone the repository**
+
+This downloads the source code to your computer.
+
+```bash
+git clone https://github.com/Sqwerzyyy/-Bloomberg-terminal-.git
+cd -Bloomberg-terminal-
+```
+
+**Step 4 — Configure the build**
+
+CMake reads the project description and prepares everything for compilation. On first run it will automatically download the FTXUI library — this takes about 10 to 20 seconds depending on your connection.
+
+```bash
 cmake -B build -DCMAKE_BUILD_TYPE=Release
+```
+
+**Step 5 — Compile**
+
+This compiles all source files in parallel. First-time compilation takes about 1 to 3 minutes because FTXUI also needs to be compiled.
+
+```bash
 cmake --build build --parallel
+```
 
-# Run directly
-./build/bloomberg-terminal
+**Step 6 — Run**
 
-# Or install to ~/.local/bin
-cmake --install build --prefix ~/.local
+```bash
+./build/quaanz
 ```
 
 ---
 
-## Keyboard Controls
+### Linux (Ubuntu / Debian)
 
-| Key | Action |
-|---|---|
-| `1` | Market Watchlist |
-| `2` | Portfolio |
-| `3` | Chart |
-| `4` | Options Calculator |
-| `5` | News Feed |
-| `↑` / `↓` | Navigate list |
-| `Enter` | Open chart for selected symbol |
-| `b` | Buy a position |
-| `s` | Sell a position |
-| `a` | Set price alert |
-| `r` | Reset to SPY chart |
-| `q` | Quit (saves portfolio) |
+**Step 1 — Install dependencies**
+
+```bash
+sudo apt update
+sudo apt install -y build-essential cmake git curl
+```
+
+`build-essential` installs `g++` and `make`. `cmake` is the build system. `curl` is used at runtime to fetch live market data.
+
+**Step 2 — Clone the repository**
+
+```bash
+git clone https://github.com/Sqwerzyyy/-Bloomberg-terminal-.git
+cd -Bloomberg-terminal-
+```
+
+**Step 3 — Configure the build**
+
+CMake will automatically download FTXUI the first time this runs.
+
+```bash
+cmake -B build -DCMAKE_BUILD_TYPE=Release
+```
+
+**Step 4 — Compile**
+
+```bash
+cmake --build build --parallel
+```
+
+**Step 5 — Run**
+
+```bash
+./build/quaanz
+```
 
 ---
 
-## Architecture
+### Windows (via WSL2)
+
+WSL2 is a feature built into Windows 10 and 11 that runs a real Linux environment side by side with Windows. You install Linux inside it, and then work in a Linux terminal. No dual boot, no virtual machine to manage.
+
+**Step 1 — Install WSL2 with Ubuntu**
+
+Open PowerShell or Windows Terminal as Administrator and run:
+
+```powershell
+wsl --install
+```
+
+This installs WSL2 and Ubuntu automatically. Restart your computer when prompted, then open the Ubuntu app from the Start menu and create a username and password.
+
+**Step 2 — From here, follow the Linux steps above**
+
+Once inside the Ubuntu terminal, all subsequent steps are identical to the Linux instructions. Run them in the Ubuntu window, not in PowerShell.
+
+---
+
+## Setting up the AI chat
+
+The AI chat tab works without any setup — it will just tell you that no AI backend is available until you configure one. You have two options.
+
+**What is an environment variable?**
+An environment variable is a named value that your terminal makes available to programs when they start. In this case, the app reads a variable called `ANTHROPIC_API_KEY` to know your API key, so you do not have to type it inside the app itself.
+
+---
+
+### Option A: Ollama (free, runs on your computer)
+
+Ollama is a program that downloads and runs AI language models locally on your machine. No internet connection is needed after the model is downloaded, and there is no cost.
+
+**Install Ollama**
+
+On macOS:
+```bash
+brew install ollama
+```
+
+On Linux or WSL: download the installer from [ollama.com](https://ollama.com) and follow the instructions there.
+
+**Download a model**
+
+This downloads the llama3.2 model (about 2 GB). You only need to do this once.
+
+```bash
+ollama pull llama3.2
+```
+
+**Start the Ollama server**
+
+Ollama needs to be running in the background while you use Quaanz. Open a separate terminal window and run:
+
+```bash
+ollama serve
+```
+
+Leave that window open. Now start Quaanz in another terminal window — it will detect Ollama automatically and show it in the model dropdown on the AI Terminal tab.
+
+---
+
+### Option B: Claude by Anthropic (paid)
+
+Claude is Anthropic's AI model. Using it requires an API key, which you get from [console.anthropic.com](https://console.anthropic.com). This is a paid API with no free tier — you are charged per request based on the number of tokens processed. For casual use the cost is very low, but it is not zero.
+
+**Set the API key**
+
+Add this line to your `~/.bashrc` or `~/.zshrc` file (replace the placeholder with your actual key):
+
+```bash
+export ANTHROPIC_API_KEY=sk-ant-your-key-here
+```
+
+Then reload your shell:
+
+```bash
+source ~/.bashrc
+```
+
+Or you can set it just for the current session without saving:
+
+```bash
+export ANTHROPIC_API_KEY=sk-ant-your-key-here
+```
+
+Start Quaanz and Claude will appear in the model dropdown.
+
+---
+
+### Switching models inside the app
+
+In the AI Terminal tab (press `2` to open it), there is a dropdown in the top bar showing the active model. Click on it with the mouse to open it and select a different model. Changes take effect immediately.
+
+---
+
+## Keyboard controls
+
+| Key | Where it works | Action |
+|---|---|---|
+| `1` | Anywhere | Switch to Markets tab |
+| `2` | Anywhere | Switch to AI Terminal tab |
+| `3` | Anywhere | Switch to Risk tab |
+| `←` / `→` | Anywhere | Switch to previous / next tab |
+| `Q` | Anywhere | Quit |
+| `↑` / `↓` | Markets tab | Move selection up / down in the watchlist |
+| `Tab` | Markets tab | Cycle sector filter forward (All → Technology → Finance → …) |
+| `Shift+Tab` | Markets tab | Cycle sector filter backward |
+| `A` | Markets or Risk tab | Run a quick AI market analysis |
+| `+` | Markets or Risk tab | Increase Monte Carlo volatility (sigma) by 5% |
+| `-` | Markets or Risk tab | Decrease Monte Carlo volatility (sigma) by 5% |
+| `T` | Risk tab | Cycle simulation horizon: 7 → 30 → 90 → 180 days → back to 7 |
+| `PgUp` / `PgDn` | AI Terminal tab | Scroll the chat history |
+| `F1` / `F2` | AI Terminal tab | Scroll the news feed up / down |
+| `Enter` | AI Terminal tab | Send the typed message to the AI |
+
+---
+
+## Tech stack
+
+- **C++20** — the programming language the app is written in
+- **FTXUI** — a C++ library for building interactive terminal user interfaces, similar to what web developers use React for but for the command line; fetched and compiled automatically by CMake
+- **CMake** — the build system that manages compilation and dependency fetching
+- **Yahoo Finance** — the source of live market data, accessed via standard HTTP requests using `curl`
+- **Anthropic API** — the cloud API used to call Claude when `ANTHROPIC_API_KEY` is set
+- **Ollama** — a locally running program that serves open-source AI models; the app talks to it over a local HTTP connection
+
+---
+
+## Project structure
 
 ```
-bloomberg-terminal/
-├── include/
-│   └── terminal.hpp       # All data structures & class declarations
+-Bloomberg-terminal-/
 ├── src/
-│   ├── main.cpp           # ncurses TUI, all panel rendering
-│   └── data.cpp           # MarketData, Portfolio, Black-Scholes, News
+│   ├── main.cpp           All three tab panels, splash screen, keyboard handling, color scheme selection
+│   ├── HighResChart.cpp   Candlestick chart and Monte Carlo histogram — both are custom rendering nodes
+│   └── data.cpp           Yahoo Finance fetching, market data storage, AI chat logic, news feed
+├── include/
+│   ├── terminal.hpp       Data structures shared across all files: Quote, Candle, MarketData, AIAnalyst, etc.
+│   ├── HighResChart.hpp   Interface for the chart rendering functions
+│   └── json_mini.hpp      A minimal JSON parser with no external dependencies, used to read Yahoo Finance responses
 ├── scripts/
-│   └── install.sh         # One-line installer
-├── data/                  # portfolio.csv saved here at runtime
-└── CMakeLists.txt
-```
-
-**Design highlights:**
-- Zero external dependencies beyond ncurses and the C++ standard library
-- Market simulation uses geometric Brownian motion (random walk) with per-asset volatility profiles
-- Portfolio persists as plain CSV — human-readable, zero lock-in
-- Black-Scholes implementation from scratch: `d1`, `d2`, `erf`-based normal CDF
-
----
-
-## Extending
-
-Adding a real data source (e.g. Alpha Vantage, Yahoo Finance) is straightforward — just replace `MarketData::tick()` with an HTTP fetch. A minimal example using `libcurl`:
-
-```cpp
-// In MarketData::tick():
-// 1. Build URL:  "https://query1.finance.yahoo.com/v8/finance/chart/AAPL?interval=1m&range=1d"
-// 2. Parse JSON with nlohmann/json
-// 3. Update quotes_ map as normal
+│   └── install.sh         One-line installer script for Linux and macOS
+└── CMakeLists.txt         Build configuration; declares FTXUI as an automatically fetched dependency
 ```
 
 ---
 
-## Screenshots
+## Troubleshooting
 
-> Run in any terminal ≥ 100 columns wide. Recommended: iTerm2 / Windows Terminal / Kitty with a dark colorscheme.
+**The AI tab shows "Ollama error. Is `ollama serve` running?"**
 
-```
-┌────────────────────────────────────────── BLOOMBERG TERMINAL ──[1] MARKET──[2] PORTFOLIO──…──┐
-│ SYMBOL  NAME                      PRICE      CHG    CHG%    HIGH     LOW    VOL   SPARK      │
-│ AAPL    Apple Inc              185.24    +1.32  +0.72%  186.10  184.50  12.4M ▃▄▅▆▇▇▆▇     │
-│ BTC     Bitcoin USD          68412.00  +842.00  +1.25%  69100   67800   8.2M ▂▃▅▆▇▇▆▅     │
-│ NVDA    NVIDIA Corp            875.10   -12.40  -1.40%  892.00  871.30   6.1M ▇▆▅▄▄▃▂▁     │
-└───────────────────────────────────────────────────────────────────────────────────────────────┘
-```
+The app detected Ollama but cannot reach it. Make sure `ollama serve` is running in a separate terminal window. If you closed it, open a new terminal and run `ollama serve` again, then the app will reconnect on the next request.
+
+**CMake says it cannot find a C++ compiler**
+
+On macOS, run `xcode-select --install` and complete the installation. On Linux, run `sudo apt install build-essential`. Then re-run the `cmake -B build` command.
+
+**A candlestick chart shows "no data"**
+
+The app failed to fetch data from Yahoo Finance for that ticker. Check your internet connection. Some assets may temporarily be unavailable from Yahoo Finance. Navigate to a different asset and try again.
+
+**The build fails with "cmake: command not found"**
+
+CMake is not installed. On macOS: `brew install cmake`. On Linux: `sudo apt install cmake`.
+
+**Colors or characters look wrong in the terminal**
+
+Quaanz uses Unicode block characters and requires a terminal with full Unicode support. On macOS, use Terminal.app or iTerm2. On Linux, most modern terminals work. On Windows, use Windows Terminal (not the old CMD or PowerShell windows) with the WSL Ubuntu profile.
 
 ---
 
 ## License
 
-MIT © 2024 — free to use, fork, and modify. Pull requests welcome.
-
----
-
-## Contributing
-
-1. Fork the repository
-2. Create a feature branch: `git checkout -b feature/live-api`
-3. Commit your changes: `git commit -m 'Add Alpha Vantage support'`
-4. Push: `git push origin feature/live-api`
-5. Open a Pull Request
-
-Ideas for contributions:
-- Live data via Yahoo Finance / Alpha Vantage API
-- Candlestick chart with OHLC bars (not just close line)
-- Portfolio import from broker CSV (Interactive Brokers, Robinhood)
-- Configuration file (`~/.config/bloomberg-terminal/config.toml`)
-- Unit tests with Catch2
+MIT. See [LICENSE](LICENSE) for the full text.
