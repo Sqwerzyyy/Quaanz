@@ -23,7 +23,7 @@
 
 using namespace ftxui;
 
-// ─── Author contacts — edit here to update the splash screen ─────────────
+//Author contacts 
 static const char* CONTACT_INSTAGRAM = "@sqwerzyyy";
 static const char* CONTACT_LINKEDIN  = "linkedin.com/in/oleg-avtonomov-93a437380";
 static const char* CONTACT_GITHUB    = "github.com/Sqwerzyyy";
